@@ -27,15 +27,15 @@ class Mosaic(xbmcgui.WindowDialog):
         self.title = xbmcgui.ControlLabel(25, 17, 1180, 42, '',
                        font='font30', textColor='0xFFFFFFFF')
         self.addControl(self.title)
-        self.hint = xbmcgui.ControlLabel(25, 657, 1230, 26, '',
+        self.hint = xbmcgui.ControlLabel(25, 662, 1230, 23, '',
                       font='font13', textColor='0xFFE7EACB')
-        self.note_label = xbmcgui.ControlLabel(25, 687, 1230, 26, '',
+        self.note_label = xbmcgui.ControlLabel(25, 690, 1230, 23, '',
                       font='font13', textColor='0xFFABDDFD')
         self.addControl(self.hint)
         self.addControl(self.note_label)
         self.images, self.tiles = [], []
         for pos in range(4):
-            x, y = 25 + 625 * (pos % 2), 69 + 287 * (pos // 2)
+            x, y = 25 + 625 * (pos % 2), 66 + 275 * (pos // 2)
             image = xbmcgui.ControlImage(x, y, 605, 238, '', aspectRatio=2)
             button = xbmcgui.ControlButton(x, y + 239, 605, 38, 'Sem câmera')
             self.addControl(image)
@@ -44,7 +44,7 @@ class Mosaic(xbmcgui.WindowDialog):
             self.tiles.append(button)
         self.toolbar = []
         for i, label in enumerate(TOOLBAR):
-            button = xbmcgui.ControlButton(25 + i * 154, 620, 150, 35, label)
+            button = xbmcgui.ControlButton(25 + i * 154, 624, 150, 35, label)
             self.addControl(button)
             self.toolbar.append(button)
         self.buttons = self.tiles + self.toolbar
