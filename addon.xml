@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="script.cameras.mosaico" name="Câmeras em Mosaico (RTSP/ONVIF)" version="0.1.0" provider-name="Comunidade">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.script" library="default.py"><provides>executable</provides></extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="pt_BR">Câmeras em mosaico para o Kodi com PTZ e zoom pelo controle remoto</summary>
+    <description lang="pt_BR">Mostra até quatro prévias RTSP por página; permite adicionar, editar e excluir câmeras e movimentar PTZ ONVIF por controle remoto. Zoom digital e tentativa de zoom óptico. Requer FFmpeg.</description>
+    <language>pt_BR</language><platform>all</platform><license>MIT</license>
+    <source>https://github.com/pedropmoraesf/Kodi-Cameras-Mosaico</source>
+  </extension>
+</addon>
