@@ -2,9 +2,10 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+import xbmc
 import xbmcgui
 from . import cameras, onvif
-from .preview import Preview
+from .live import MosaicStream, probe_page
 
 TOOLBAR = ('+ Adicionar câmera', 'Editar', 'Ocultar', 'Excluir',
            'Página -', 'Página +', 'Zoom -', 'Zoom +')
@@ -17,10 +18,15 @@ class Mosaic(xbmcgui.WindowDialog):
         self.cams = cameras.load(profile)
         self.page = self.slot = self.focus = 0
         self.ptz_mode = self.closed = False
-        self.preview = Preview(os.path.join(profile, 'previews'))
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.initialized = False
+        self.live = MosaicStream()
+        self.player = xbmc.Player()
+        self.playback_url = self.live.url
+        self.zoom_factors = {}
+        self.stream_job = None
+        self.stream_generation = 0
+        self.executor = ThreadPoolExecutor(max_workers=5)
         self.pending = None
-        self.last_frames = {}
         self.last_click = (None, 0.)
         self.addControl(xbmcgui.ControlImage(0, 0, 1280, 720,
                          os.path.join(os.path.dirname(os.path.dirname(__file__)), 'media', 'background.png')))
@@ -33,14 +39,14 @@ class Mosaic(xbmcgui.WindowDialog):
                       font='font13', textColor='0xFFABDDFD')
         self.addControl(self.hint)
         self.addControl(self.note_label)
-        self.images, self.tiles = [], []
+        # Um único vídeo H.264 (960x540), composto a partir de quatro RTSP.
+        # ControlVideoWindow exibe o vídeo do player em vez de quatro JPEGs.
+        self.addControl(xbmcgui.ControlVideoWindow(160, 60, 960, 540))
+        self.tiles = []
         for pos in range(4):
-            x, y = 25 + 625 * (pos % 2), 66 + 275 * (pos // 2)
-            image = xbmcgui.ControlImage(x, y, 605, 238, '', aspectRatio=2)
-            button = xbmcgui.ControlButton(x, y + 239, 605, 38, 'Sem câmera')
-            self.addControl(image)
+            x, y = 160 + 480 * (pos % 2), 60 + 270 * (pos // 2)
+            button = xbmcgui.ControlButton(x, y + 225, 480, 44, 'Sem câmera')
             self.addControl(button)
-            self.images.append(image)
             self.tiles.append(button)
         self.toolbar = []
         for i, label in enumerate(TOOLBAR):
@@ -53,6 +59,9 @@ class Mosaic(xbmcgui.WindowDialog):
     def onInit(self):
         """O Kodi só aceita o foco inicial após a janela estar visível."""
         self.set_focus(self.focus)
+        if not self.initialized:
+            self.initialized = True
+            self.request_live()
 
     def visible(self):
         return [c for c in self.cams if c.get('ativa', True)
@@ -78,27 +87,54 @@ class Mosaic(xbmcgui.WindowDialog):
         pages = max(1, (len(self.visible())+3)//4)
         self.page = min(self.page, pages-1)
         page = self.page_cams()
-        self.preview.sync([(c['ip'], c) for c in page])
         for i in range(4):
             if i < len(page):
                 prefix = 'PTZ ▶ ' if self.ptz_mode and i == self.slot else ('► ' if self.slot == i else '')
                 self.tiles[i].setLabel(prefix + page[i]['nome'])
             else:
                 self.tiles[i].setLabel('— Sem câmera —')
-                self.images[i].setImage('', False)
         self.title.setLabel('CÂMERAS | MOSAICO    Página %d/%d' % (self.page+1, pages))
         self.hint.setLabel('PTZ: setas movimentam; OK/Voltar retorna à seleção' if self.ptz_mode
              else 'Setas: navegação | OK: PTZ | 1/3: zoom | Menu: outras opções')
         self.set_focus(self.focus)
 
+    def owns_playback(self):
+        try:
+            return self.player.isPlayingVideo() and self.player.getPlayingFile().startswith(
+                self.playback_url.split('?')[0])
+        except (RuntimeError, OSError):
+            return False
+
+    def request_live(self):
+        if not self.initialized or self.closed:
+            return
+        self.stream_generation += 1
+        self.stop_own_playback()
+        self.stream_job = (self.stream_generation,
+                           self.executor.submit(probe_page, list(self.page_cams())))
+        self.message('Conectando aos vídeos RTSP (sem conversão em JPEG)...')
+
+    def stop_own_playback(self):
+        if self.owns_playback():
+            self.player.stop()
+
     def refresh(self):
-        for i, cam in enumerate(self.page_cams()):
-            # O Kodi tende a manter a textura antiga quando só o conteúdo do
-            # mesmo caminho muda. Cada quadro recebe um caminho novo e estável.
-            frame = self.preview.frame_for_display(cam['ip'])
-            if frame is not None and self.last_frames.get(i) != frame:
-                self.images[i].setImage(str(frame), False)
-                self.last_frames[i] = frame
+        if self.stream_job and self.stream_job[1].done():
+            generation, future = self.stream_job
+            self.stream_job = None
+            if generation == self.stream_generation and not self.closed:
+                try:
+                    sources = future.result()
+                    if self.player.isPlayingVideo() and not self.owns_playback():
+                        self.message('Outro vídeo está em reprodução; mosaico não foi iniciado.')
+                    else:
+                        self.live.configure(sources, self.zoom_factors)
+                        self.player.play(self.playback_url, windowed=True)
+                        online = sum(s['online'] for s in sources)
+                        self.message('Mosaico ao vivo: %d/%d câmeras conectadas, 20 FPS.' %
+                                     (online, len(sources)))
+                except Exception:
+                    self.message('Não foi possível iniciar o mosaico de vídeo.')
         if self.pending and self.pending.done():
             try:
                 self.pending.result()
@@ -106,13 +142,12 @@ class Mosaic(xbmcgui.WindowDialog):
             except Exception:
                 self.message('PTZ não confirmado; confira suporte, porta e perfil ONVIF.')
             self.pending = None
-        self.preview.sync([(c['ip'], c) for c in self.page_cams()])
 
     def persist(self):
         cameras.save(self.profile, self.cams)
         self.ptz_mode = False
-        self.last_frames.clear()
         self.render()
+        self.request_live()
 
     def change_page(self, amount):
         maxpage = max(0, (len(self.visible())-1)//4)
@@ -120,14 +155,17 @@ class Mosaic(xbmcgui.WindowDialog):
         if nextpage != self.page:
             self.page, self.slot, self.focus = nextpage, 0, 0
             self.ptz_mode = False
-            self.last_frames.clear()
             self.render()
+            self.request_live()
 
     def zoom(self, delta):
         cam = self.selected()
         if cam:
-            factor = self.preview.set_digital_zoom(cam['ip'], cam, delta)
-            self.message('Zoom digital da câmera: %.2fx' % factor)
+            current = self.zoom_factors.get(cam['ip'], 1.)
+            factor = round(max(1., min(4., current + delta)), 2)
+            self.zoom_factors[cam['ip']] = factor
+            self.request_live()
+            self.message('Zoom digital: %.2fx, atualizando vídeo...' % factor)
 
     def move(self, pan=0., tilt=0., zoom=0.):
         cam = self.selected()
@@ -299,5 +337,8 @@ class Mosaic(xbmcgui.WindowDialog):
 
     def finish(self):
         self.closed = True
-        self.preview.close()
+        self.stream_generation += 1
+        # Só parar vídeo se for o stream local iniciado pelo complemento.
+        self.stop_own_playback()
+        self.live.close()
         self.executor.shutdown(wait=False, cancel_futures=True)

@@ -3,10 +3,17 @@
 import os
 import xbmc
 import xbmcaddon
+import xbmcgui
 import xbmcvfs
 from resources.lib.ui import Mosaic
 
 def main():
+    # Abrir o addon enquanto outro vídeo está tocando nunca deve substituí-lo.
+    if xbmc.Player().isPlayingVideo():
+        xbmcgui.Dialog().notification('Câmeras',
+            'Finalize o vídeo atual antes de abrir o mosaico.',
+            xbmcgui.NOTIFICATION_INFO, 3500)
+        return
     addon = xbmcaddon.Addon()
     profile = xbmcvfs.translatePath(addon.getAddonInfo('profile'))
     screen = Mosaic(profile)

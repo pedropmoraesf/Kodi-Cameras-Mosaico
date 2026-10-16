@@ -1,74 +1,55 @@
 # Câmeras em Mosaico para Kodi
 
-Complemento Python para Kodi 21+, em português brasileiro, com mosaico RTSP, PTZ ONVIF e zoom digital pelo controle remoto.
+Complemento para **Kodi 21+**: até quatro câmeras IP RTSP simultâneas, mosaico de **vídeo contínuo** e PTZ/zoom pelo controle remoto da TV ou Kore.
 
-## Funções
+## Vídeo contínuo — versão 0.2.0 beta
 
-- Mosaico de até quatro câmeras por página, com prévias JPEG RTSP atualizadas aproximadamente uma vez por segundo.
-- Seleção por setas e OK; setas movem a câmera quando o modo PTZ está ativo.
-- Botão **+ Adicionar câmera** para IP/host, nome, usuário, senha, portas e caminho RTSP.
-- Editar, ocultar, restaurar, excluir câmeras e trocar de página.
-- Zoom digital de 1x a 4x; tentativa de zoom óptico por ONVIF.
-- Importação inicial do cadastro local Yoosee, quando existente.
-- O complemento não usa comandos para parar, pausar ou reiniciar a reprodução do Kodi.
+O mosaico **não usa mais imagens JPEG a 1 FPS**. Para contornar a limitação de uma superfície de vídeo por player Kodi, um FFmpeg local lê até quatro fluxos RTSP e os compõe em **um único H.264/MPEG-TS**, entregue ao reprodutor do próprio Kodi por HTTP **somente em 127.0.0.1**. A interface apresenta o mosaico no controle `xbmcgui.ControlVideoWindow`, com botões sobre cada câmera. A taxa-alvo inicial é **20 FPS**, com resolução total **960×540** (480×270 por câmera); a taxa efetiva depende da CPU, da rede e das câmeras. Não é equivalente à decodificação independente por hardware do VLC, e o desempenho real no Pi 4 ainda requer validação visual.
+
+- Até quatro câmeras por página, simultaneamente.
+- Uma câmera que não responde ao exame RTSP inicial é substituída por quadro preto, sem bloquear as outras.
+- RTSP UDP/TCP é examinado por câmera; para Yoosee `/onvif1` e `/onvif2`, UDP tem prioridade.
+- PTZ ONVIF por setas, zoom digital de 1× a 4×, tentativa de zoom óptico ONVIF; o suporte PTZ precisa ser validado nas câmeras.
+- Botão **+ Adicionar câmera**, edição, exclusão, ocultação, restauração e paginação.
+- O cadastro é salvo apenas no perfil local do usuário.
+
+## Proteção de vídeo em reprodução
+
+Se **outro vídeo já estiver em reprodução no Kodi**, o complemento **não inicia o mosaico nem para o vídeo**: exibe um aviso. Nenhuma ação ocorre automaticamente durante a reprodução. Ao abrir o mosaico quando não há vídeo em reprodução, o complemento utiliza o player Kodi para seu próprio vídeo. Ao fechar, interrompe apenas o fluxo criado pelo complemento.
+
+O mosaico é atualizado na **próxima abertura do complemento**. Não é necessário reiniciar o Kodi, mas abrir o complemento durante uma sessão de vídeo não é recomendado.
 
 ## Instalação
 
-Requer Kodi com Python 3 e FFmpeg no sistema.
+Requer Kodi 21+, Python 3 e FFmpeg/FFprobe instalados:
 
 ```sh
 sudo apt install ffmpeg
 git clone https://github.com/pedropmoraesf/Kodi-Cameras-Mosaico.git ~/.kodi/addons/script.cameras.mosaico
 ```
 
-Abra em **Complementos → Programas → Câmeras em Mosaico**. Dependendo da instalação, pode ser necessário atualizar o catálogo local ou iniciar o Kodi novamente em momento oportuno.
+Abra por **Complementos → Programas → Câmeras em Mosaico**. No Raspberry Pi da instalação original, foi adicionado um atalho **Câmeras** diretamente ao menu inicial da skin Arctic: Zephyr – Reloaded; esse atalho depende da skin local e não acompanha o ZIP.
 
-## Controle remoto
+## Controles
 
-- **Setas** no mosaico: seleção de câmeras e navegação pela barra de botões.
-- **OK** na câmera: ativa/desativa o modo PTZ; setas movimentam a câmera em passos curtos.
-- **Voltar**: sai do modo PTZ ou fecha o complemento.
-- **1 e 3**: diminuir/aumentar zoom digital, também disponível na barra de botões.
-- **Menu contextual**: inclui reexibir câmera oculta e testar zoom óptico.
-- **Página anterior/próxima**: barra de botões ou teclas PageUp/PageDown.
+- Setas: seleção da câmera e navegação pelos botões.
+- OK sobre uma câmera: ativa/desativa o modo PTZ; no modo PTZ, as setas movimentam a câmera.
+- Voltar: sai do modo PTZ ou fecha o complemento.
+- Teclas 1/3 ou botões Zoom -/+: alteram zoom digital da câmera, recriando o vídeo composto.
+- Menu contextual: reexibir câmera oculta, testar zoom óptico, adicionar e editar.
+- Página anterior/próxima: botões de navegação ou teclas PageUp/PageDown.
 
-## Conexões
+## Segurança
 
-O padrão é RTSP na porta 554 e caminho `/onvif2`, com ONVIF na porta 5000. Para outros modelos, configure as portas e o caminho corretos. O zoom óptico e o PTZ dependem do suporte real da câmera e de um perfil ONVIF válido.
+O arquivo `cameras.json` é privado (0600 no Linux), não é enviado ao GitHub e pode ser importado da configuração local Yoosee. O servidor de vídeo é vinculado à interface de loopback (127.0.0.1), com URL contendo token de sessão. Credenciais RTSP são passadas ao FFmpeg na linha de comando do próprio Raspberry Pi; usuários com acesso de processos podem vê-las. Nunca exponha RTSP/ONVIF diretamente na Internet.
 
-O mosaico **não é vídeo fluido de 25/30 FPS**: são prévias de baixa taxa de quadros para limitar o consumo de CPU no Raspberry Pi 4. Câmeras sem RTSP ou com autenticação inválida podem permanecer sem imagem.
-
-## Privacidade e segurança
-
-- O arquivo `cameras.json` é gravado no perfil privado do Kodi com permissão 0600 no Linux; a configuração antiga, quando existente, só é lida localmente.
-- **Nenhuma senha, endereço particular ou imagem de câmera faz parte deste repositório.**
-- O FFmpeg recebe URLs RTSP autenticadas na linha de comando enquanto o painel está aberto. Não dê acesso shell a pessoas não confiáveis.
-- Não exponha serviços RTSP/ONVIF à Internet; prefira rede privada/VPN.
-- Ao fechar, o complemento encerra somente os processos FFmpeg que iniciou.
-
-## Verificação
+## Testes e limites
 
 ```sh
 python3 -m compileall -q .
 python3 -m unittest discover -s tests -v
 ```
 
+Os testes automatizados são executados **sem abrir o Kodi** e sem interromper vídeos. A saída H.264 composta, o foco no controle, a latência e o PTZ precisam de um teste integrado em momento em que não esteja assistindo a outro conteúdo. A antiga implementação de prévias JPEG permanece apenas como código legado não utilizado.
+
 Licença: MIT.
-
-## Problemas de foco em diálogos da skin
-
-O complemento ativa o foco inicial dos seus controles somente depois de abrir sua janela. Algumas versões da skin **Arctic: Zephyr – Reloaded** podem não definir foco inicial no diálogo nativo de confirmação do Kodi (botões *Não* e *Sim*). Esse diálogo pertence à skin e não ao complemento. Corrigir a skin exige configurar o botão 10 (Não) como `<defaultcontrol always="true">10</defaultcontrol>` em `DialogConfirm.xml`. Faça cópia de segurança antes de editar. Uma recarga de skin, em momento sem reprodução de vídeo, pode ser necessária para aplicar a alteração.
-
-## Compatibilidade FFmpeg no Raspberry Pi
-
-A partir da versão 0.1.2, a prévia não usa `-rw_timeout`, pois esta opção falha em certas compilações do FFmpeg no Debian. Para streams Yoosee `/onvif1` e `/onvif2`, prioriza UDP, com alternância automática para TCP se não aparecer nenhum quadro em até nove segundos. Para os demais caminhos RTSP, prioriza TCP.
-
-## Pré-visualização sem congelamento (0.1.3)
-
-O Kodi pode conservar em cache uma imagem mesmo depois de seu arquivo JPEG
-ser atualizado pelo FFmpeg. Agora cada quadro recebe um caminho de imagem
-novo, gerado por hard link do arquivo atualizado atomicamente. Apenas os
-quatro quadros temporários mais recentes de cada câmera permanecem no disco;
-eles são descartados ao fechar o complemento. A prévia continua limitada a
-1 quadro por segundo, priorizando o Raspberry Pi 4. A correção entra em uso
-na próxima abertura do complemento, sem reiniciar nem interromper o Kodi.
