@@ -93,12 +93,12 @@ class Mosaic(xbmcgui.WindowDialog):
 
     def refresh(self):
         for i, cam in enumerate(self.page_cams()):
-            p = self.preview.image_path(cam['ip'])
-            try: stamp = p.stat().st_mtime_ns
-            except OSError: continue
-            if self.last_frames.get(i) != (str(p), stamp):
-                self.images[i].setImage(str(p), False)
-                self.last_frames[i] = (str(p), stamp)
+            # O Kodi tende a manter a textura antiga quando só o conteúdo do
+            # mesmo caminho muda. Cada quadro recebe um caminho novo e estável.
+            frame = self.preview.frame_for_display(cam['ip'])
+            if frame is not None and self.last_frames.get(i) != frame:
+                self.images[i].setImage(str(frame), False)
+                self.last_frames[i] = frame
         if self.pending and self.pending.done():
             try:
                 self.pending.result()

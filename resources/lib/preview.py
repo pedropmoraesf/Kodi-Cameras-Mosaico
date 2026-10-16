@@ -16,9 +16,55 @@ class Preview:
         self.zoom = {}
         # FFmpeg pode negociar somente TCP ou somente UDP, conforme a câmera.
         self.transports = {}
+        self.presented = {}
+        self.snapshots = {}
+        # Remover arquivos temporários abandonados por execuções anteriores.
+        for old in self.folder.glob('frame_*.jpg'):
+            try:
+                old.unlink()
+            except OSError:
+                pass
 
     def image_path(self, key):
         return self.folder / ('cam_%s.jpg' % key)
+
+    def frame_for_display(self, key):
+        """Disponibiliza um nome novo para cada JPEG; Kodi não recarrega a mesma URL.
+
+        Cria hard link para o quadro que FFmpeg substituiu atomicamente.
+        Retém quatro quadros por câmera enquanto a UI termina o carregamento.
+        """
+        source = self.image_path(key)
+        try:
+            stat = source.stat()
+        except OSError:
+            return None
+        version = (stat.st_ino, stat.st_mtime_ns)
+        previous = self.presented.get(key)
+        if previous and previous[0] == version:
+            return previous[1]
+        # Inode no nome previne colisão se o processo reiniciar rapidamente.
+        target = self.folder / ('frame_%s_%s_%s.jpg' %
+                                (key, stat.st_ino, stat.st_mtime_ns))
+        try:
+            os.link(source, target)
+        except FileExistsError:
+            pass
+        except OSError:
+            try:
+                shutil.copyfile(source, target)
+            except OSError:
+                return None
+        history = self.snapshots.setdefault(key, [])
+        history.append(target)
+        while len(history) > 4:
+            old = history.pop(0)
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        self.presented[key] = (version, target)
+        return target
 
     def start(self, key, cam):
         self.stop(key)
@@ -101,3 +147,11 @@ class Preview:
     def close(self):
         for key in list(self.workers):
             self.stop(key)
+        for frames in self.snapshots.values():
+            for frame in frames:
+                try:
+                    frame.unlink()
+                except OSError:
+                    pass
+        self.snapshots.clear()
+        self.presented.clear()

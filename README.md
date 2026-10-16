@@ -62,3 +62,13 @@ O complemento ativa o foco inicial dos seus controles somente depois de abrir su
 ## Compatibilidade FFmpeg no Raspberry Pi
 
 A partir da versão 0.1.2, a prévia não usa `-rw_timeout`, pois esta opção falha em certas compilações do FFmpeg no Debian. Para streams Yoosee `/onvif1` e `/onvif2`, prioriza UDP, com alternância automática para TCP se não aparecer nenhum quadro em até nove segundos. Para os demais caminhos RTSP, prioriza TCP.
+
+## Pré-visualização sem congelamento (0.1.3)
+
+O Kodi pode conservar em cache uma imagem mesmo depois de seu arquivo JPEG
+ser atualizado pelo FFmpeg. Agora cada quadro recebe um caminho de imagem
+novo, gerado por hard link do arquivo atualizado atomicamente. Apenas os
+quatro quadros temporários mais recentes de cada câmera permanecem no disco;
+eles são descartados ao fechar o complemento. A prévia continua limitada a
+1 quadro por segundo, priorizando o Raspberry Pi 4. A correção entra em uso
+na próxima abertura do complemento, sem reiniciar nem interromper o Kodi.
