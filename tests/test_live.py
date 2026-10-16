@@ -13,12 +13,12 @@ class LiveVideoTest(unittest.TestCase):
         sources = [dict(camera=cam, online=True, transport='udp'),
                    dict(camera=cam, online=False, transport=None)]
         cmd = live.build_command(sources, {cam['ip']: 1.5})
-        self.assertEqual(cmd.count('-i'), 4)
+        self.assertEqual(cmd.count('-i'), 2)
         self.assertEqual(cmd[cmd.index('-f', cmd.index('-filter_complex'))+1], 'mpegts')
         self.assertEqual(cmd[-1], 'pipe:1')
         self.assertNotIn('image2', cmd)
         self.assertNotIn('fps=1,', ' '.join(cmd))
-        self.assertIn('xstack=inputs=4', cmd[cmd.index('-filter_complex')+1])
+        self.assertIn('xstack=inputs=2', cmd[cmd.index('-filter_complex')+1])
         self.assertIn('crop=trunc(iw/1.500', cmd[cmd.index('-filter_complex')+1])
         self.assertIn('udp', cmd)
         self.assertIn('-re', cmd)  # Slate a velocidade real.
@@ -37,7 +37,7 @@ class LiveVideoTest(unittest.TestCase):
         self.assertFalse(status['online'])
         self.assertIsNone(status['transport'])
         cmd = live.build_command([status])
-        self.assertIn('color=c=black:s=480x270:r=20', cmd)
+        self.assertIn('color=c=black:s=960x540:r=20', cmd)
 
     def test_http_only_localhost_and_token(self):
         server = live.MosaicStream()

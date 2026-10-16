@@ -6,6 +6,7 @@ import xbmc
 import xbmcgui
 from . import cameras, onvif
 from .live import MosaicStream, probe_page
+from .layout import PAGE_SIZE, VIEW_X, VIEW_Y, VIEW_W, VIEW_H, grid_shape, rectangles, page_count, target_fps
 
 TOOLBAR = ('+ Adicionar câmera', 'Editar', 'Ocultar', 'Excluir',
            'Página -', 'Página +', 'Zoom -', 'Zoom +')
@@ -39,14 +40,13 @@ class Mosaic(xbmcgui.WindowDialog):
                       font='font13', textColor='0xFFABDDFD')
         self.addControl(self.hint)
         self.addControl(self.note_label)
-        # Um único vídeo H.264 (960x540), composto a partir de quatro RTSP.
-        # ControlVideoWindow exibe o vídeo do player em vez de quatro JPEGs.
-        self.addControl(xbmcgui.ControlVideoWindow(160, 60, 960, 540))
+        # O video composto ocupa a mesma area que a grade dinamica dos botoes.
+        self.addControl(xbmcgui.ControlVideoWindow(VIEW_X, VIEW_Y, VIEW_W, VIEW_H))
         self.tiles = []
-        for pos in range(4):
-            x, y = 160 + 480 * (pos % 2), 60 + 270 * (pos // 2)
-            button = xbmcgui.ControlButton(x, y + 225, 480, 44, 'Sem câmera')
+        for pos in range(PAGE_SIZE):
+            button = xbmcgui.ControlButton(VIEW_X, VIEW_Y, 160, 25, '')
             self.addControl(button)
+            button.setVisible(False)
             self.tiles.append(button)
         self.toolbar = []
         for i, label in enumerate(TOOLBAR):
@@ -68,7 +68,7 @@ class Mosaic(xbmcgui.WindowDialog):
                 and not c.get('rtsp_hidden', False)]
 
     def page_cams(self):
-        return self.visible()[self.page*4:self.page*4+4]
+        return self.visible()[self.page*PAGE_SIZE:(self.page+1)*PAGE_SIZE]
 
     def selected(self):
         page = self.page_cams()
@@ -78,22 +78,34 @@ class Mosaic(xbmcgui.WindowDialog):
         self.note_label.setLabel(msg)
 
     def set_focus(self, index):
+        page = self.page_cams()
         self.focus = max(0, min(len(self.buttons)-1, index))
-        if self.focus < 4: self.slot = self.focus
+        if self.focus < PAGE_SIZE:
+            self.focus = min(self.focus, len(page)-1) if page else PAGE_SIZE
+            if page:
+                self.slot = self.focus
         try: self.setFocus(self.buttons[self.focus])
         except RuntimeError: pass
 
     def render(self):
-        pages = max(1, (len(self.visible())+3)//4)
+        pages = page_count(len(self.visible()))
         self.page = min(self.page, pages-1)
         page = self.page_cams()
-        for i in range(4):
-            if i < len(page):
-                prefix = 'PTZ ▶ ' if self.ptz_mode and i == self.slot else ('► ' if self.slot == i else '')
-                self.tiles[i].setLabel(prefix + page[i]['nome'])
-            else:
-                self.tiles[i].setLabel('— Sem câmera —')
-        self.title.setLabel('CÂMERAS | MOSAICO    Página %d/%d' % (self.page+1, pages))
+        layout = rectangles(len(page))
+        for i, button in enumerate(self.tiles):
+            if i >= len(page):
+                button.setVisible(False)
+                continue
+            x, y, w, h = layout[i]
+            label_h = max(20, min(38, h//5))
+            button.setPosition(x, y+h-label_h)
+            button.setWidth(w)
+            button.setHeight(label_h)
+            prefix = 'PTZ ▶ ' if self.ptz_mode and i == self.slot else ('► ' if self.slot == i else '')
+            button.setLabel(prefix + page[i]['nome'][:35])
+            button.setVisible(True)
+        self.title.setLabel('CÂMERAS | %d visíveis    Página %d/%d' %
+                            (len(self.visible()), self.page+1, pages))
         self.hint.setLabel('PTZ: setas movimentam; OK/Voltar retorna à seleção' if self.ptz_mode
              else 'Setas: navegação | OK: PTZ | 1/3: zoom | Menu: outras opções')
         self.set_focus(self.focus)
@@ -131,8 +143,8 @@ class Mosaic(xbmcgui.WindowDialog):
                         self.live.configure(sources, self.zoom_factors)
                         self.player.play(self.playback_url, windowed=True)
                         online = sum(s['online'] for s in sources)
-                        self.message('Mosaico ao vivo: %d/%d câmeras conectadas, 20 FPS.' %
-                                     (online, len(sources)))
+                        self.message('Mosaico: %d/%d câmeras conectadas; alvo %d FPS.' %
+                                     (online, len(sources), target_fps(len(sources))))
                 except Exception:
                     self.message('Não foi possível iniciar o mosaico de vídeo.')
         if self.pending and self.pending.done():
@@ -150,7 +162,7 @@ class Mosaic(xbmcgui.WindowDialog):
         self.request_live()
 
     def change_page(self, amount):
-        maxpage = max(0, (len(self.visible())-1)//4)
+        maxpage = page_count(len(self.visible())) - 1
         nextpage = max(0, min(maxpage, self.page+amount))
         if nextpage != self.page:
             self.page, self.slot, self.focus = nextpage, 0, 0
@@ -196,8 +208,8 @@ class Mosaic(xbmcgui.WindowDialog):
             dialog.ok('Câmeras', 'IP, caminho ou portas inválidos.')
             return
         self.cams.append(cam)
-        self.page = (len(self.visible())-1)//4
-        self.focus = self.slot = (len(self.visible())-1)%4
+        self.page = (len(self.visible())-1)//PAGE_SIZE
+        self.focus = self.slot = (len(self.visible())-1)%PAGE_SIZE
         self.persist()
         self.message('Câmera adicionada. O cadastro permanece local.')
 
@@ -269,13 +281,15 @@ class Mosaic(xbmcgui.WindowDialog):
         elif index == 8: self.move(zoom=-.5)
 
     def activate(self, index):
-        if index < 4:
+        if index < PAGE_SIZE:
+            if index >= len(self.page_cams()):
+                return
             self.set_focus(index)
             if self.selected():
                 self.ptz_mode = not self.ptz_mode
                 self.render()
             return
-        command = index-4
+        command = index-PAGE_SIZE
         if command == 0: self.add_camera()
         elif command == 1: self.edit_camera()
         elif command == 2: self.hide()
@@ -317,17 +331,25 @@ class Mosaic(xbmcgui.WindowDialog):
             if self.ptz_mode:
                 self.move(pan=dx*.45, tilt=-dy*.45)
                 return
-            if self.focus >= 4:
-                if dy: self.set_focus(self.slot)
-                else: self.set_focus(4+(self.focus-4+dx) % len(TOOLBAR))
-            else:
-                row, col = divmod(self.focus, 2)
-                if dy < 0 and row == 0 or dy > 0 and row == 1:
-                    self.set_focus(4)
-                elif dy:
-                    self.set_focus((row+dy)*2+col)
+            if self.focus >= PAGE_SIZE:
+                if dy:
+                    self.set_focus(self.slot if self.page_cams() else PAGE_SIZE)
                 else:
-                    self.set_focus(row*2+(col+dx)%2)
+                    self.set_focus(PAGE_SIZE+(self.focus-PAGE_SIZE+dx) % len(TOOLBAR))
+            else:
+                count = len(self.page_cams())
+                cols, rows = grid_shape(count)
+                row, col = divmod(self.focus, cols)
+                if dy > 0 and row+1 >= rows:
+                    self.set_focus(PAGE_SIZE)
+                elif dy < 0 and row == 0:
+                    self.set_focus(self.focus)
+                elif dy:
+                    candidate = (row+dy)*cols+col
+                    self.set_focus(min(candidate, count-1))
+                else:
+                    begin, end = row*cols, min((row+1)*cols, count)
+                    self.set_focus(begin+(col+dx) % (end-begin))
             self.render()
             return
         if code == 7:

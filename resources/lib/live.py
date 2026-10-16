@@ -1,6 +1,6 @@
 """Bridge RTSP -> mosaico H.264/MPEG-TS servido apenas em localhost.
 
-Quatro feeds contínuos compõem um único vídeo reproduzido pelo Kodi.
+Até 16 feeds contínuos por página compõem um único vídeo reproduzido pelo Kodi.
 Nenhum comando manipula o player até o usuário abrir explicitamente o addon.
 """
 import concurrent.futures
@@ -10,10 +10,7 @@ import socketserver
 import subprocess
 import threading
 from .cameras import stream_url
-
-FPS = 20
-CELL_W = 480
-CELL_H = 270
+from .layout import PAGE_SIZE, VIEW_W, VIEW_H, cell_geometry, target_fps
 
 
 def preferred_transport(cam):
@@ -38,43 +35,58 @@ def probe(cam, timeout=4):
 
 
 def probe_page(cams, timeout=4):
-    """Até quatro conexões examinadas simultaneamente, nunca em série."""
-    cameras = list(cams[:4])
+    """Até 16 câmeras por página, verificadas em até quatro threads."""
+    cameras = list(cams[:PAGE_SIZE])
     if not cameras:
         return []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(cameras))) as pool:
         futures = [pool.submit(probe, cam, timeout) for cam in cameras]
         return [f.result() for f in futures]
 
 
-def build_command(sources, zoom=None, fps=FPS, width=CELL_W, height=CELL_H):
-    """Uma entrada por câmera; ausência de sinal => slate preto isolado."""
-    fps = max(10, min(30, int(fps)))
+def build_command(sources, zoom=None, fps=None, width=VIEW_W, height=VIEW_H):
+    """Compor 1..16 câmeras dinamicamente em um único vídeo.
+
+    A grade acompanha a quantidade real de fontes sem criar slots extras.
+    Fontes indisponíveis usam vídeo preto contínuo com o mesmo FPS.
+    """
     zoom = zoom or {}
-    source_list = list(sources[:4])
+    source_list = list(sources[:PAGE_SIZE])
+    if not source_list:
+        source_list = [None]
+    count = len(source_list)
+    cols, rows, cw, ch = cell_geometry(count, width, height)
+    fps = max(10, min(30, int(fps if fps is not None else target_fps(count))))
     command = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
                '-fflags', '+genpts']
     filters = []
-    for index in range(4):
-        src = source_list[index] if index < len(source_list) else None
+    for index, src in enumerate(source_list):
         if src and src.get('online'):
             command += ['-rtsp_transport', src['transport'], '-i',
                         stream_url(src['camera'])]
         else:
             command += ['-re', '-f', 'lavfi', '-i',
-                        'color=c=black:s=%dx%d:r=%d' % (width, height, fps)]
+                        'color=c=black:s=%dx%d:r=%d' % (cw, ch, fps)]
         z = 1.
         if src:
             z = max(1., min(4., float(zoom.get(src['camera']['ip'], 1.))))
         ops = []
         if z > 1.01:
             ops.append('crop=trunc(iw/%.3f/2)*2:trunc(ih/%.3f/2)*2' % (z, z))
-        ops += ['scale=%d:%d:flags=fast_bilinear' % (width, height),
+        ops += ['scale=%d:%d:flags=fast_bilinear' % (cw, ch),
                 'fps=%d' % fps, 'setsar=1', 'setpts=PTS-STARTPTS']
         filters.append('[%d:v]%s[v%d]' % (index, ','.join(ops), index))
-    filters.append('[v0][v1][v2][v3]xstack=inputs=4:layout=' +
-                   '0_0|%d_0|0_%d|%d_%d' % (width, height, width, height) +
-                   ':shortest=0:fill=black,format=yuv420p[out]')
+
+    if count == 1:
+        filters.append('[v0]format=yuv420p[out]')
+    else:
+        positions = ['%d_%d' % ((i % cols) * cw, (i // cols) * ch)
+                     for i in range(count)]
+        filters.append(''.join('[v%d]' % i for i in range(count)) +
+                       'xstack=inputs=%d:layout=%s:shortest=0:fill=black,' %
+                       (count, '|'.join(positions)) +
+                       'format=yuv420p[out]')
+
     command += ['-filter_complex', ';'.join(filters), '-map', '[out]',
                 '-an', '-sn', '-dn', '-c:v', 'libx264', '-preset', 'ultrafast',
                 '-tune', 'zerolatency', '-threads', '2', '-r', str(fps),
@@ -159,7 +171,7 @@ class MosaicStream:
         return 'http://127.0.0.1:%d/mosaic.ts?key=%s' % (
             self.httpd.server_address[1], self.token)
 
-    def configure(self, sources, zoom=None, fps=FPS):
+    def configure(self, sources, zoom=None, fps=None):
         with self.lock:
             self.command = build_command(sources, zoom, fps)
 
