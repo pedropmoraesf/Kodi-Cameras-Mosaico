@@ -58,3 +58,7 @@ Licença: MIT.
 ## Problemas de foco em diálogos da skin
 
 O complemento ativa o foco inicial dos seus controles somente depois de abrir sua janela. Algumas versões da skin **Arctic: Zephyr – Reloaded** podem não definir foco inicial no diálogo nativo de confirmação do Kodi (botões *Não* e *Sim*). Esse diálogo pertence à skin e não ao complemento. Corrigir a skin exige configurar o botão 10 (Não) como `<defaultcontrol always="true">10</defaultcontrol>` em `DialogConfirm.xml`. Faça cópia de segurança antes de editar. Uma recarga de skin, em momento sem reprodução de vídeo, pode ser necessária para aplicar a alteração.
+
+## Compatibilidade FFmpeg no Raspberry Pi
+
+A partir da versão 0.1.2, a prévia não usa `-rw_timeout`, pois esta opção falha em certas compilações do FFmpeg no Debian. Para streams Yoosee `/onvif1` e `/onvif2`, prioriza UDP, com alternância automática para TCP se não aparecer nenhum quadro em até nove segundos. Para os demais caminhos RTSP, prioriza TCP.

@@ -14,12 +14,17 @@ class Preview:
         self.width = max_width
         self.workers = {}
         self.zoom = {}
+        # FFmpeg pode negociar somente TCP ou somente UDP, conforme a câmera.
+        self.transports = {}
 
     def image_path(self, key):
         return self.folder / ('cam_%s.jpg' % key)
 
     def start(self, key, cam):
         self.stop(key)
+        # Fluxos Yoosee /onvif1 e /onvif2 frequentemente exigem UDP.
+        default_transport = 'udp' if cam.get('caminho', '').lower() in ('/onvif1', '/onvif2') else 'tcp'
+        self.transports.setdefault(key, default_transport)
         if shutil.which('ffmpeg') is None:
             return
         path = self.image_path(key)
@@ -36,7 +41,7 @@ class Preview:
             vf = 'scale={}:{}:force_original_aspect_ratio=decrease,fps=1'.format(self.width, 338)
         cmd = [
             'ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
-            '-rtsp_transport', 'tcp', '-rw_timeout', '4000000',
+            '-rtsp_transport', self.transports.get(key, 'tcp'),
             '-i', stream_url(cam), '-an', '-sn', '-dn',
             '-threads', '1', '-vf', vf, '-q:v', '6',
             '-f', 'image2', '-update', '1', '-atomic_writing', '1', '-y', str(path)
@@ -61,11 +66,16 @@ class Preview:
             entry = self.workers.get(key)
             if entry is None:
                 self.start(key, cam)
-            elif entry['proc'].poll() is not None and time.monotonic() - entry['start'] > 8:
-                # Evita loop agressivo de reconexão com câmera sem autenticação.
+                continue
+            age = time.monotonic() - entry['start']
+            # Sem quadros por tempo prolongado, tentar o outro transporte.
+            # Uma câmera que já produziu um JPEG mantém o transporte válido.
+            if age > 9 and not self.image_path(key).is_file():
+                current = self.transports.get(key, 'tcp')
+                self.transports[key] = 'udp' if current == 'tcp' else 'tcp'
                 self.start(key, cam)
-            elif entry['proc'].poll() is not None:
-                pass
+            elif entry['proc'].poll() is not None and age > 12:
+                self.start(key, cam)
 
     def set_digital_zoom(self, key, cam, delta):
         current = self.zoom.get(key, 1.0)
