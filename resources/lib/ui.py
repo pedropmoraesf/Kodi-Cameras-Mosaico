@@ -50,6 +50,10 @@ class Mosaic(xbmcgui.WindowDialog):
         self.buttons = self.tiles + self.toolbar
         self.render()
 
+    def onInit(self):
+        """O Kodi só aceita o foco inicial após a janela estar visível."""
+        self.set_focus(self.focus)
+
     def visible(self):
         return [c for c in self.cams if c.get('ativa', True)
                 and not c.get('rtsp_hidden', False)]

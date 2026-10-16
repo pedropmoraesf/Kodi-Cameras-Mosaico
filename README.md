@@ -54,3 +54,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 Licença: MIT.
+
+## Problemas de foco em diálogos da skin
+
+O complemento ativa o foco inicial dos seus controles somente depois de abrir sua janela. Algumas versões da skin **Arctic: Zephyr – Reloaded** podem não definir foco inicial no diálogo nativo de confirmação do Kodi (botões *Não* e *Sim*). Esse diálogo pertence à skin e não ao complemento. Corrigir a skin exige configurar o botão 10 (Não) como `<defaultcontrol always="true">10</defaultcontrol>` em `DialogConfirm.xml`. Faça cópia de segurança antes de editar. Uma recarga de skin, em momento sem reprodução de vídeo, pode ser necessária para aplicar a alteração.
